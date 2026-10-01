@@ -1,0 +1,19 @@
+# Dependências
+**/node_modules/
+
+# Builds
+dist/
+**/dist/
+
+# Banco local/locks
+**/*.db
+**/*.db-shm
+**/*.db-wal
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor
+.vscode/
+.DS_Store
