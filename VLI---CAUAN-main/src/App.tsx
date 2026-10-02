@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
   Activity, AlertTriangle, Archive, BarChart3, Bell, Bot, Box, CalendarDays, Check, ChevronDown,
   ChevronLeft, ChevronRight, CircleHelp, ClipboardCheck, Clock3, Cloud, CloudOff, Download, FileBarChart,
@@ -11,7 +11,7 @@ import Login from './pages/Login';
 import { useAuth, PERMS, homeFor } from './auth';
 import { Logo } from './components/Logo';
 
-export type Page = 'dashboard'|'orders'|'assets'|'handover'|'schedule'|'indicators'|'reports'|'alerts'|'ai'|'users'|'settings'|'field';
+export type Page = 'dashboard'|'orders'|'new-order'|'assets'|'schedule'|'indicators'|'reports'|'alerts'|'users'|'settings'|'field';
 type Order = { id:string; asset:string; tag:string; service:string; area:string; priority:'Crítica'|'Alta'|'Média'|'Baixa'; status:string; owner:string; due:string; progress:number };
 
 type DashboardKpis = {
@@ -55,12 +55,12 @@ const orders: Order[] = [
 const nav = [
   {section:'VISÃO GERAL', items:[['dashboard','Dashboard',LayoutDashboard],['alerts','Central de alertas',Bell]]},
   {section:'MANUTENÇÃO', items:[['orders','Ordens de manutenção',Wrench],['assets','Gestão de ativos',Box],['schedule','Programação semanal',CalendarDays]]},
-  {section:'OPERAÇÃO', items:[['handover','Passagem de turno',ClipboardCheck],['field','Operação em campo',HardHat]]},
-  {section:'ANÁLISE', items:[['indicators','Indicadores',BarChart3],['reports','Relatórios',FileBarChart],['ai','IA de manutenção',Sparkles]]},
+  {section:'OPERAÇÃO', items:[['field','Operação em campo',HardHat]]},
+  {section:'ANÁLISE', items:[['indicators','Indicadores',BarChart3],['reports','Relatórios',FileBarChart]]},
   {section:'GESTÃO', items:[['users','Usuários e acessos',Users],['settings','Configurações',Settings]]},
 ] as const;
 
-const pageNames:Record<Page,string>={dashboard:'Visão operacional',orders:'Ordens de manutenção',assets:'Gestão de ativos',handover:'Passagem de turno',schedule:'Programação semanal',indicators:'Indicadores de manutenção',reports:'Relatórios',alerts:'Central de alertas',ai:'IA de manutenção',users:'Usuários e acessos',settings:'Configurações',field:'Operação em campo'};
+const pageNames:Record<Page,string>={dashboard:'Visão operacional',orders:'Ordens de manutenção','new-order':'Nova ordem de manutenção',assets:'Gestão de ativos',schedule:'Programação semanal',indicators:'Indicadores de manutenção',reports:'Relatórios',alerts:'Central de alertas',users:'Usuários e acessos',settings:'Configurações',field:'Operação em campo'};
 
 function Status({children}:{children:string}){const cls=children.toLowerCase().replaceAll(' ','-').replace('.','');return <span className={`status ${cls}`}><i/>{children}</span>}
 function Priority({value}:{value:Order['priority']}){return <span className={`priority ${value.toLowerCase()}`}>{value}</span>}
@@ -86,6 +86,342 @@ function Orders(){const [rows,setRows]=useState<ApiOrder[]>([]);const [selected,
 
 function OrderDrawer({order,onClose,onRefresh}:{order:ApiOrder,onClose:()=>void,onRefresh:()=>Promise<void>}){const [updating,setUpdating]=useState(false);const [actionError,setActionError]=useState<string | null>(null);const handleAction=async(status:'Programada'|'Distribuída')=>{setActionError(null);setUpdating(true);try{await api.statusOrdem(order.id,status);await onRefresh();}catch(err){setActionError(err instanceof Error ? err.message : 'Não foi possível atualizar a ordem.');}finally{setUpdating(false);}};const status=order.status ?? '—';const isClosed=String(status).toLowerCase()==='encerrada';const condicoes=Array.isArray(order.condicoes)?order.condicoes:[];const done=condicoes.filter((c)=>c.ok).length;return <div className="overlay" onClick={onClose}><aside className="drawer" onClick={e=>e.stopPropagation()}><div className="drawerHead"><div><span>ORDEM DE MANUTENÇÃO</span><h2>{String(order.numero ?? order.id)}</h2></div><button onClick={onClose}><X/></button></div><div className="drawerStatus"><Status>{status}</Status>{condicoes.length > 0 && <span className="priority">{done}/{condicoes.length} concluídas</span>}</div><div className="assetHero"><div className="assetIcon"><Wrench/></div><div><small>ATIVO</small><h3>{order.equipamento ?? '—'}</h3><p><MapPin size={14}/> Terminal Sudeste · {order.equipe ?? '—'}</p></div></div><section className="drawerSection"><label>SERVIÇO</label><h3>{order.tipo ?? '—'}</h3><p>{order.hh_previsto ? `HH previsto: ${order.hh_previsto}` : 'Sem HH previsto informado.'}</p></section><div className="detailGrid"><div><span>Responsável</span><b>{order.equipe ?? '—'}</b></div><div><span>Prazo</span><b>{order.data_programada ?? '—'}</b></div><div><span>Tempo estimado</span><b>{order.hh_previsto ? `${order.hh_previsto}h` : '—'}</b></div><div><span>Centro de trabalho</span><b>MAN-01</b></div>{isClosed && order.data_encerramento && <div><span>Encerrada em</span><b>{order.data_encerramento}</b></div>}</div>{condicoes.length > 0 && <section className="drawerSection"><label>CONDIÇÕES</label>{condicoes.map((condicao)=><div key={condicao.tipo} style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:8,padding:'8px 10px',border:'1px solid #1f3a5a',borderRadius:8}}><span>{condicao.tipo}</span><span className={condicao.ok ? 'status concluída' : 'status pendente'} style={{padding:'4px 8px',borderRadius:999,fontSize:11,fontWeight:700}}>{condicao.ok ? 'Concluída' : 'Pendente'}</span></div>)}</section>}{actionError && <p className="dangerText">{actionError}</p>}{isClosed ? (order.data_encerramento ? <div className="drawerActions"><button className="secondary" disabled>Encerrada em {order.data_encerramento}</button></div> : null) : <div className="drawerActions"><button className="secondary" onClick={()=>handleAction('Programada')} disabled={updating}>{updating ? 'Aguarde...' : 'Programar'}</button><button className="primary" onClick={()=>handleAction('Distribuída')} disabled={updating}>Distribuir</button></div>}</aside></div>}
 
+function PageIntro({ text, children }: { text: string; children?: React.ReactNode }) {
+  return (
+    <section className="heroRow" style={{ marginBottom: 18 }}>
+      <div>
+        <p className="eyebrow">SIGMA-CCM</p>
+        <h2 style={{ marginTop: 8, marginBottom: 4 }}>{text}</h2>
+      </div>
+      {children ? <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>{children}</div> : null}
+    </section>
+  );
+}
+
+function Assets() {
+  const items = [
+    { tag: 'VT-3330-TR01', nome: 'Sistema estrutural TR01', status: 'Operando', criticidade: 'Alta', local: 'Terminal Leste' },
+    { tag: 'TR01-BOMBA-02', nome: 'Bomba de recalque 02', status: 'Em inspeção', criticidade: 'Alta', local: 'Pátio A' },
+    { tag: 'PA-2200-MOT', nome: 'Motor de acionamento 2200', status: 'Programada', criticidade: 'Média', local: 'Pátio B' },
+    { tag: 'ESTR-3330', nome: 'Estrutura metálica 3330', status: 'Normal', criticidade: 'Média', local: 'Terminal Leste' },
+  ];
+
+  return (
+    <>
+      <PageIntro text="Gestão de ativos e criticidade." />
+      <div className="grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 18 }}>
+        {items.map((item) => (
+          <div key={item.tag} className="card panel" style={{ padding: 20 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+              <span className="eyebrow">{item.tag}</span>
+              <span className="status em-execucao">{item.status}</span>
+            </div>
+            <h3 style={{ margin: '0 0 8px' }}>{item.nome}</h3>
+            <p style={{ margin: 0, color: '#8aa3c6' }}>{item.local}</p>
+            <div style={{ marginTop: 14, display: 'flex', justifyContent: 'space-between', color: '#c8d9f7' }}>
+              <span>Criticidade</span>
+              <b>{item.criticidade}</b>
+            </div>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function Handover() {
+  const itens = [
+    { turno: 'Turno A', descricao: 'Troca de filtros na Bomba 02 concluída com sucesso.', responsavel: 'Marisa' },
+    { turno: 'Turno B', descricao: 'Reaperto em painel QGBT pendente para 18h.', responsavel: 'Flávio' },
+    { turno: 'Turno C', descricao: 'Lote de materiais chegou e foi conferido.', responsavel: 'Luiz' },
+  ];
+
+  return (
+    <>
+      <PageIntro text="Passagem de turno e alinhamento operacional." />
+      <div className="card panel" style={{ padding: 20 }}>
+        {itens.map((item) => (
+          <div key={item.turno} style={{ border: '1px solid rgba(146,176,220,0.16)', borderRadius: 12, padding: 14, marginBottom: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+              <strong>{item.turno}</strong>
+              <span className="eyebrow">{item.responsavel}</span>
+            </div>
+            <p style={{ margin: 0, color: '#dbe8ff' }}>{item.descricao}</p>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function Schedule() {
+  const days = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+  const slots = [
+    { label: 'Engenharia', value: '4' },
+    { label: 'Campo', value: '7' },
+    { label: 'Manutenção', value: '5' },
+    { label: 'Inspeções', value: '3' },
+  ];
+
+  return (
+    <>
+      <PageIntro text="Programação semanal e alocação de equipes." />
+      <div className="card panel" style={{ padding: 20 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 12 }}>
+          {days.map((day) => (
+            <div key={day} style={{ border: '1px solid rgba(146,176,220,0.16)', borderRadius: 12, padding: 12 }}>
+              <div className="eyebrow">{day}</div>
+              <div style={{ marginTop: 8, fontSize: 26, fontWeight: 700 }}>{day === 'Seg' ? '3' : day === 'Ter' ? '5' : day === 'Qua' ? '2' : day === 'Qui' ? '6' : day === 'Sex' ? '4' : '1'}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginTop: 18 }}>
+          {slots.map((slot) => (
+            <div key={slot.label} className="metric card" style={{ padding: 16 }}>
+              <div className="metricTop"><span>{slot.label}</span></div>
+              <div className="metricValue">{slot.value}<small>ordens</small></div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
+function Indicators() {
+  return (
+    <>
+      <PageIntro text="Indicadores de manutenção e performance." />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 18 }}>
+        <Metric label="Aderência" value="94" unit="%" delta="2,4" good={true} icon={Gauge} />
+        <Metric label="IAMOT" value="83" unit="%" delta="1,1" good={true} icon={Activity} />
+        <Metric label="MTBF" value="312" unit="h" delta="18" good={true} icon={Clock3} />
+        <Metric label="MTTR" value="7,4" unit="h" delta="-1,2" good={false} icon={Timer} />
+      </div>
+      <div className="card panel" style={{ marginTop: 18, padding: 20 }}>
+        <TrendChart />
+      </div>
+    </>
+  );
+}
+
+function Reports() {
+  const reports = [
+    { title: 'Disponibilidade operacional', period: 'Últimos 30 dias', status: 'Concluído', color: 'good' },
+    { title: 'Pareto de falhas', period: 'Semana atual', status: 'Disponível', color: 'warning' },
+    { title: 'Histórico de ordens', period: 'Últimos 90 dias', status: 'Disponível', color: 'neutral' },
+  ];
+
+  return (
+    <>
+      <PageIntro text="Relatórios executivos e consolidados." />
+
+      <div className="card panel" style={{ padding: 20 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
+          {reports.map((item) => (
+            <div key={item.title} style={{ border: '1px solid rgba(146,176,220,0.16)', borderRadius: 12, padding: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+                <strong>{item.title}</strong>
+                <span className={`status ${item.color === 'good' ? 'em-execucao' : item.color === 'warning' ? 'pendente' : 'normal'}`}>
+                  {item.status}
+                </span>
+              </div>
+              <p style={{ margin: '10px 0 0', color: '#8aa3c6' }}>{item.period}</p>
+              <div style={{ display: 'flex', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
+                <button className="secondary" type="button" onClick={() => alert(`Abrindo ${item.title}...`)}>Visualizar</button>
+                <button className="primary" type="button" onClick={() => alert(`Exportando ${item.title}...`)}>Baixar</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
+function Alerts() {
+  const list = [
+    { title: 'Bomba 02 com vibração acima do limite', grau: 'Alta', status: 'Novos' },
+    { title: 'Painel elétrico QGBT sem inspeção no turno', grau: 'Média', status: 'Em análise' },
+    { title: 'Ordem vencida com atraso de 18h', grau: 'Crítica', status: 'Atenção' },
+  ];
+
+  return (
+    <>
+      <PageIntro text="Central de alertas e monitoramento." />
+      <div className="card panel" style={{ padding: 20 }}>
+        {list.map((item) => (
+          <div key={item.title} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', borderBottom: '1px solid rgba(146,176,220,0.16)' }}>
+            <div>
+              <strong>{item.title}</strong>
+              <div className="eyebrow" style={{ marginTop: 6 }}>{item.grau}</div>
+            </div>
+            <span className="status em-execucao">{item.status}</span>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function AIPage() {
+  const suggestions = [
+    'Reaperto de terminal em painel QGBT recomendado na próxima janela',
+    'Risco de falha em bomba aumenta após 3 inspeções consecutivas',
+    'Programação de lubrificação de compressor deve ser antecipada',
+  ];
+
+  return (
+    <>
+      <PageIntro text="Assistente de IA para manutenção preditiva." />
+      <div className="card panel" style={{ padding: 20 }}>
+        {suggestions.map((item, index) => (
+          <div key={item} style={{ display: 'flex', gap: 12, alignItems: 'flex-start', padding: '12px 0', borderBottom: index === suggestions.length - 1 ? 'none' : '1px solid rgba(146,176,220,0.16)' }}>
+            <div className="avatar" style={{ width: 28, height: 28, borderRadius: '50%', display: 'grid', placeItems: 'center', background: '#7c96c9' }}>{index + 1}</div>
+            <p style={{ margin: 0, color: '#dfeaff' }}>{item}</p>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function UsersPage() {
+  const users = [
+    { nome: 'Ana Souza', papel: 'CCM', status: 'Ativo' },
+    { nome: 'Carlos Lima', papel: 'PCM', status: 'Ativo' },
+    { nome: 'João Pereira', papel: 'EXECUTANTE', status: 'Ativo' },
+  ];
+
+  return (
+    <>
+      <PageIntro text="Usuários e acessos do sistema." />
+      <div className="card panel" style={{ padding: 20 }}>
+        {users.map((user) => (
+          <div key={user.nome} style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid rgba(146,176,220,0.16)' }}>
+            <div>
+              <strong>{user.nome}</strong>
+              <div className="eyebrow" style={{ marginTop: 4 }}>{user.papel}</div>
+            </div>
+            <span className="status em-execucao">{user.status}</span>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function SettingsPage() {
+  return (
+    <>
+      <PageIntro text="Configurações e preferências do ambiente." />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 18 }}>
+        {['Notificações', 'Integrações', 'Segurança', 'Escala de priorização'].map((item) => (
+          <div key={item} className="card panel" style={{ padding: 20 }}>
+            <strong>{item}</strong>
+            <p style={{ color: '#8aa3c6', marginBottom: 0 }}>Configuração ativa e sincronizada.</p>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function NewOrderPage({ onBack }: { onBack: () => void }) {
+  const [form, setForm] = useState({
+    equipamento: '',
+    tag: '',
+    tipo: 'Preventiva',
+    prioridade: 'Alta',
+    area: 'Mecânica',
+    data: '',
+    responsavel: '',
+    descricao: '',
+  });
+
+  const handleChange = (field: string, value: string) => {
+    setForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  return (
+    <>
+      <PageIntro text="Nova ordem de manutenção.">
+        <button className="secondary" type="button" onClick={onBack}>Voltar</button>
+      </PageIntro>
+
+      <div className="card panel" style={{ padding: 24 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 18 }}>
+          <label style={{ display: 'grid', gap: 8 }}>
+            <span className="eyebrow">Equipamento</span>
+            <input value={form.equipamento} onChange={(e) => handleChange('equipamento', e.target.value)} placeholder="Ex.: Bomba centrífuga" />
+          </label>
+          <label style={{ display: 'grid', gap: 8 }}>
+            <span className="eyebrow">TAG</span>
+            <input value={form.tag} onChange={(e) => handleChange('tag', e.target.value)} placeholder="Ex.: BOM-1234A" />
+          </label>
+          <label style={{ display: 'grid', gap: 8 }}>
+            <span className="eyebrow">Tipo</span>
+            <select value={form.tipo} onChange={(e) => handleChange('tipo', e.target.value)}>
+              <option>Preventiva</option>
+              <option>Corretiva</option>
+              <option>Inspeção</option>
+              <option>Melhoria</option>
+            </select>
+          </label>
+          <label style={{ display: 'grid', gap: 8 }}>
+            <span className="eyebrow">Prioridade</span>
+            <select value={form.prioridade} onChange={(e) => handleChange('prioridade', e.target.value)}>
+              <option>Crítica</option>
+              <option>Alta</option>
+              <option>Média</option>
+              <option>Baixa</option>
+            </select>
+          </label>
+          <label style={{ display: 'grid', gap: 8 }}>
+            <span className="eyebrow">Área</span>
+            <select value={form.area} onChange={(e) => handleChange('area', e.target.value)}>
+              <option>Mecânica</option>
+              <option>Elétrica</option>
+              <option>Instrumentação</option>
+              <option>Estrutural</option>
+            </select>
+          </label>
+          <label style={{ display: 'grid', gap: 8 }}>
+            <span className="eyebrow">Prazo</span>
+            <input type="date" value={form.data} onChange={(e) => handleChange('data', e.target.value)} />
+          </label>
+          <label style={{ display: 'grid', gap: 8, gridColumn: '1 / -1' }}>
+            <span className="eyebrow">Responsável</span>
+            <input value={form.responsavel} onChange={(e) => handleChange('responsavel', e.target.value)} placeholder="Nome da equipe ou técnico responsável" />
+          </label>
+          <label style={{ display: 'grid', gap: 8, gridColumn: '1 / -1' }}>
+            <span className="eyebrow">Descrição</span>
+            <textarea rows={5} value={form.descricao} onChange={(e) => handleChange('descricao', e.target.value)} placeholder="Detalhes da intervenção, inspeção ou liberação." />
+          </label>
+        </div>
+
+        <div style={{ display: 'flex', gap: 12, marginTop: 22, flexWrap: 'wrap' }}>
+          <button className="primary" type="button" onClick={() => alert('Ordem criada com sucesso.')}>
+            Salvar ordem
+          </button>
+          <button className="secondary" type="button" onClick={onBack}>Cancelar</button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function GenericPage({ page }: { page: Page }) {
+  return (
+    <>
+      <PageIntro text={pageNames[page] ?? 'Página'} />
+      <div className="card panel" style={{ padding: 24 }}>
+        <p style={{ margin: 0, color: '#dfeaff' }}>Esta página está disponível e funcional no fluxo do SIGMA-CCM.</p>
+      </div>
+    </>
+  );
+}
+
 export default function App(){
  const { user, loading, logout } = useAuth();
  const [page,setPage]=useState<Page>('dashboard');
@@ -97,11 +433,21 @@ export default function App(){
  };
  const content=useMemo(()=>{
    if(page==='dashboard') return <Dashboard setPage={safeSetPage}/>;
-   if(page==='orders') return <Orders/>;
+   if(page==='orders') return <div onClickCapture={(event) => {
+     const button = (event.target as HTMLElement).closest('button');
+     if (button?.textContent?.includes('Nova ordem')) {
+       event.stopPropagation();
+       safeSetPage('new-order');
+     }
+   }}><Orders /></div>;
+   if(page==='new-order') return <NewOrderPage onBack={() => safeSetPage('orders')} />;
    if(page==='assets') return <Assets/>;
-   if(page==='handover') return <Handover/>;
    if(page==='schedule') return <Schedule/>;
-   if(page==='ai') return <AIPage/>;
+   if(page==='indicators') return <Indicators/>;
+   if(page==='reports') return <Reports/>;
+   if(page==='alerts') return <Alerts/>;
+   if(page==='users') return <UsersPage/>;
+   if(page==='settings') return <SettingsPage/>;
    if(page==='field') return <FieldPage/>;
    return <GenericPage page={page}/>;
  },[page, user, allowedPages]);
@@ -125,3 +471,199 @@ export default function App(){
  }
 
  return <div className="app"><Sidebar page={page} setPage={safeSetPage} open={side} setOpen={setSide} allowedPages={allowedPages} user={{ nome: user.nome, papel: user.papel, username: user.username }} onLogout={logout}/><main><Header page={page} onMenu={()=>setSide(true)}/><div className="content">{content}</div><footer><span>SIGMA-CCM · Ambiente de demonstração</span><span>v0.1.0 · Dados atualizados agora</span></footer></main>{side&&<div className="sideOverlay" onClick={()=>setSide(false)}/>}</div>}
+
+function FieldPage(){
+  const [online, setOnline] = useState(false);
+  const [ordens, setOrdens] = useState<ApiOrder[]>([]);
+  const [colaboradores, setColaboradores] = useState<{ id: number | string; nome: string }[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [form, setForm] = useState({
+    ordem_id: '',
+    tipo: 'Apropriação',
+    colaborador_id: '',
+    hh: '',
+  });
+
+  const loadData = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [ordensData, cadastrosData] = await Promise.all([
+        api.ordens(),
+        api.cadastros(),
+      ]);
+
+      const nextOrdens = Array.isArray(ordensData) ? ordensData : [];
+      const nextColaboradores = Array.isArray(cadastrosData?.colaboradores) ? cadastrosData.colaboradores : [];
+
+      setOrdens(nextOrdens);
+      setColaboradores(nextColaboradores);
+
+      if (nextOrdens.length > 0 && !form.ordem_id) {
+        setForm((prev) => ({ ...prev, ordem_id: String(nextOrdens[0].id) }));
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Não foi possível carregar ordens e colaboradores.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadData();
+  }, []);
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (!form.ordem_id || !form.colaborador_id || !form.hh || Number(form.hh) <= 0) {
+      setError('Selecione a ordem, o colaborador, o tipo e informe um HH válido.');
+      return;
+    }
+
+    setSubmitting(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const resposta = await api.criarApontamento({
+        ordem_id: Number(form.ordem_id),
+        tipo: form.tipo,
+        colaborador_id: Number(form.colaborador_id),
+        hh: Number(form.hh),
+      });
+
+      if (resposta?.encerrada) {
+        setSuccess(`Ordem ${resposta.ordem_numero} encerrada automaticamente — as 3 condições foram cumpridas.`);
+      } else {
+        setSuccess('Registro enviado');
+      }
+
+      const nextOrdens = await api.ordens();
+      const nextList = Array.isArray(nextOrdens) ? nextOrdens : [];
+      setOrdens(nextList);
+      setForm({
+        ordem_id: nextList.length > 0 ? String(nextList[0].id) : '',
+        tipo: 'Apropriação',
+        colaborador_id: '',
+        hh: '',
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Não foi possível enviar o apontamento.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <>
+      <PageIntro text="Experiência móvel offline-first para execução segura em campo.">
+        <button className={`connection ${online ? 'online' : ''}`} onClick={() => setOnline(!online)}>
+          {online ? <Cloud /> : <CloudOff />}
+          {online ? 'Online · sincronizado' : 'Offline · 3 pendências'}
+        </button>
+      </PageIntro>
+
+      <div className="fieldLayout">
+        <div className="phone">
+          <div className="phoneTop"><span>09:41</span><b>● ● ●</b></div>
+          <div className="mobileHead"><Logo/><div className={online ? 'onlineDot' : ''}/></div>
+          <div className="mobileGreeting"><span>Olá, João</span><h2>Minhas ordens</h2></div>
+          <div className="mobileTabs">
+            <button className="active">Todas <i>{ordens.length}</i></button>
+            <button>Em execução <i>{ordens.filter((o) => String(o.status ?? '').toLowerCase() === 'em execução').length}</i></button>
+            <button>Programadas <i>{ordens.filter((o) => String(o.status ?? '').toLowerCase() === 'programada').length}</i></button>
+          </div>
+
+          <div className="mobileOrders">
+            {loading ? (
+              <p>Carregando ordens...</p>
+            ) : error ? (
+              <p className="dangerText">{error}</p>
+            ) : (
+              <form onSubmit={handleSubmit} className="fieldForm">
+                <label>
+                  <span>Ordem</span>
+                  <select value={form.ordem_id} onChange={(e) => setForm((prev) => ({ ...prev, ordem_id: e.target.value }))}>
+                    <option value="">Selecione...</option>
+                    {ordens.map((ordem) => (
+                      <option key={String(ordem.id)} value={String(ordem.id)}>
+                        {ordem.numero ?? ordem.id}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label>
+                  <span>Tipo</span>
+                  <select value={form.tipo} onChange={(e) => setForm((prev) => ({ ...prev, tipo: e.target.value }))}>
+                    <option>Apropriação</option>
+                    <option>Relatório</option>
+                    <option>Validação</option>
+                  </select>
+                </label>
+
+                <label>
+                  <span>Colaborador</span>
+                  <select value={form.colaborador_id} onChange={(e) => setForm((prev) => ({ ...prev, colaborador_id: e.target.value }))}>
+                    <option value="">Selecione...</option>
+                    {colaboradores.map((colaborador) => (
+                      <option key={String(colaborador.id)} value={String(colaborador.id)}>
+                        {colaborador.nome}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label>
+                  <span>HH</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.5"
+                    value={form.hh}
+                    placeholder="0.0"
+                    onChange={(e) => setForm((prev) => ({ ...prev, hh: e.target.value }))}
+                  />
+                </label>
+
+                {error && <p className="dangerText">{error}</p>}
+                {success && <p className="successText">{success}</p>}
+
+                <button type="submit" className="primary" disabled={submitting}>
+                  {submitting ? 'Enviando...' : 'Enviar apontamento'}
+                </button>
+              </form>
+            )}
+          </div>
+
+          <nav className="mobileNav">
+            <button className="active"><Wrench/>Ordens</button>
+            <button><ClipboardCheck/>Apontar</button>
+            <button><Cloud/>Sincronizar<i>3</i></button>
+            <button><Users/>Perfil</button>
+          </nav>
+        </div>
+
+        <div className="fieldInfo">
+          <span className="eyebrow">PWA PARA CAMPO</span>
+          <h2>Trabalho contínuo,<br/>mesmo sem conexão.</h2>
+          <p>Ordens, checklists, horas, materiais e evidências ficam disponíveis no dispositivo. Ao recuperar a conexão, tudo é sincronizado automaticamente.</p>
+          <div className="offlineFeatures">
+            <div><CloudOff/><span><b>Offline-first</b>Dados disponíveis sem internet</span></div>
+            <div><ShieldCheck/><span><b>Sincronização segura</b>Tratamento inteligente de conflitos</span></div>
+            <div><Package/><span><b>Evidências completas</b>Fotos, arquivos e assinatura digital</span></div>
+          </div>
+          <div className="syncCard">
+            <div><span>ÚLTIMA SINCRONIZAÇÃO</span><b>Hoje, 09:38</b></div>
+            <div><span>ITENS PENDENTES</span><b>3</b></div>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
