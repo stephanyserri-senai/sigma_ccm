@@ -4,16 +4,24 @@
 # Builds
 dist/
 **/dist/
+*.tsbuildinfo
 
 # Banco local/locks
 **/*.db
 **/*.db-shm
 **/*.db-wal
 
+# Ambiente
+.env
+.env.*
+!.env.example
+
 # Logs
 *.log
 npm-debug.log*
 
-# Editor
+# Editor / SO
 .vscode/
+.idea/
 .DS_Store
+Thumbs.db
